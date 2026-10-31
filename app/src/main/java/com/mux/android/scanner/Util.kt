@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
 import android.widget.Toast
 
 fun Context.findActivity(): Activity? {
@@ -55,6 +56,16 @@ object Util {
 
     fun webSearch(ctx: Context, query: String) {
         open(ctx, "https://www.google.com/search?q=" + Uri.encode(query))
+    }
+
+    fun openAppSettings(ctx: Context) {
+        try {
+            ctx.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+        }
     }
 
     @Suppress("DEPRECATION")

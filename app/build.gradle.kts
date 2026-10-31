@@ -19,7 +19,7 @@ android {
     }
 
     // Same debug key on every CI build, so a new APK installs over the old one as an update.
-    // Copy debug.keystore from the Dialer project into this app/ folder to enable it.
+    // app/debug.keystore (same one as Dialer) is used when present, so updates install over old builds.
     val ks = file("debug.keystore")
     if (ks.exists()) {
         signingConfigs {

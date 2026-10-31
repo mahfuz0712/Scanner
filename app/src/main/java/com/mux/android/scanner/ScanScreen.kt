@@ -1,13 +1,10 @@
 package com.mux.android.scanner
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Size
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -26,22 +23,19 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -54,12 +48,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -72,32 +66,31 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 
-/** Live camera QR / barcode scanner. */
+/** CODE tab: live camera QR / barcode scanner inside a HUD frame. */
 @Composable
-fun ScanScreen() {
+fun ScanScreen(tablet: Boolean) {
     val ctx = LocalContext.current
+    val c = Hud.colors
     var granted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
-    var asked by remember { mutableStateOf(false) }
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        granted = it
-        asked = true
-    }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     var result by remember { mutableStateOf<ScanResult?>(null) }
     var torch by remember { mutableStateOf(false) }
     var hasTorch by remember { mutableStateOf(false) }
 
+    val accept: (ScanResult) -> Unit = { r ->
+        if (result == null) {
+            result = r
+            HistoryStore.add(r)
+            Util.vibrate(ctx)
+        }
+    }
+
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             decodeImage(ctx, uri) { r ->
-                if (r == null) {
-                    Util.toast(ctx, "No QR code or barcode found in that image")
-                } else if (result == null) {
-                    result = r
-                    HistoryStore.add(r)
-                    Util.vibrate(ctx)
-                }
+                if (r == null) Util.toast(ctx, "NO CODE FOUND IN THAT IMAGE") else accept(r)
             }
         }
     }
@@ -106,183 +99,148 @@ fun ScanScreen() {
         if (!granted) permLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (granted) {
-            CameraPreview(
-                paused = result != null,
-                torch = torch,
-                onTorchAvailable = { hasTorch = it },
-                onCode = { r ->
-                    if (result == null) {
-                        result = r
-                        HistoryStore.add(r)
-                        Util.vibrate(ctx)
-                    }
-                }
-            )
-            ScanFrame(Modifier.fillMaxSize())
-        } else {
-            Column(
-                Modifier.fillMaxSize().padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Camera permission needed", color = TextHi, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(8.dp))
-                Text("Scanner uses the camera only to read QR codes and barcodes.", color = TextDim, fontSize = 14.sp, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(20.dp))
-                Button(onClick = {
-                    if (asked) {
-                        ctx.startActivity(
-                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    } else {
-                        permLauncher.launch(Manifest.permission.CAMERA)
-                    }
-                }) { Text(if (asked) "Open app settings" else "Allow camera") }
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = { gallery.launch("image/*") }) { Text("Scan from an image instead") }
-            }
-        }
-
-        // top bar
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    val viewport: @Composable (Modifier) -> Unit = { m ->
+        val shape = HudShape(12.dp)
+        Box(
+            m
+                .clip(shape)
+                .background(Color.Black)
+                .border(1.dp, c.primary.copy(alpha = 0.5f), shape)
         ) {
-            Text("Scan code", color = TextHi, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (granted && hasTorch) {
-                    PillButton(if (torch) "Torch on" else "Torch", highlight = torch) { torch = !torch }
+            if (granted) {
+                CameraPreview(
+                    paused = result != null,
+                    torch = torch,
+                    onTorchAvailable = { hasTorch = it },
+                    onCode = accept
+                )
+                Reticle(Modifier.fillMaxSize(), result != null)
+                Row(Modifier.padding(10.dp)) {
+                    HudText(if (result != null) "● LOCKED" else "● LIVE", color = if (result != null) c.good else c.accent, size = 10.sp, bold = true)
                 }
-                PillButton("Gallery") { gallery.launch("image/*") }
+            } else {
+                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center) {
+                    PermissionPanel("CAMERA ACCESS IS NEEDED TO READ QR CODES AND BARCODES.", onGrant = {
+                        permLauncher.launch(Manifest.permission.CAMERA)
+                    })
+                }
             }
         }
+    }
 
-        if (granted && result == null) {
-            Text(
-                "Point the camera at a QR code or barcode",
-                color = TextHi,
-                fontSize = 14.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 28.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xAA000000))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+    val side: @Composable (Modifier) -> Unit = { m ->
+        Column(m) {
+            val r = result
+            if (r == null) {
+                HudPanel(Modifier.fillMaxWidth(), "STATUS") {
+                    HudText(if (granted) "SEARCHING FOR CODE..." else "CAMERA OFFLINE", color = c.accent, size = 13.sp, bold = true)
+                    Spacer(Modifier.height(4.dp))
+                    HudText("QR · EAN · UPC · CODE 128 / 39 / 93 · ITF · DATA MATRIX · PDF417 · AZTEC", color = c.dim, size = 10.sp)
+                }
+            } else {
+                HudPanel(Modifier.fillMaxWidth(), "TARGET ACQUIRED") {
+                    HudText(r.kind + " · " + r.format, color = c.accent, size = 11.sp, bold = true)
+                    Spacer(Modifier.height(4.dp))
+                    HudText(r.detail ?: r.value, color = c.text, size = 15.sp, maxLines = 6)
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth().height(40.dp)) {
+                        HudButton("COPY", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, fontSize = 11.sp) { Util.copy(ctx, r.value, "COPIED") }
+                        if (r.secret != null && r.secret.isNotEmpty()) {
+                            HudButton("PASS", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, fontSize = 11.sp) { Util.copy(ctx, r.secret, "PASSWORD COPIED") }
+                        }
+                        HudButton("SHARE", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, fontSize = 11.sp) { Util.shareText(ctx, r.value) }
+                        if (r.openUri != null) {
+                            HudButton("OPEN", Modifier.weight(1f).fillMaxHeight(), KeyKind.GOOD, fontSize = 11.sp) { Util.open(ctx, r.openUri) }
+                        } else {
+                            HudButton("SEARCH", Modifier.weight(1f).fillMaxHeight(), KeyKind.GOOD, fontSize = 11.sp) { Util.webSearch(ctx, r.value) }
+                        }
+                    }
+                    HudButton("SCAN AGAIN", Modifier.fillMaxWidth().height(44.dp), KeyKind.ACCENT, fontSize = 13.sp) { result = null }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth().height(44.dp)) {
+                HudButton("TORCH", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, enabled = granted && hasTorch, selected = torch, fontSize = 12.sp) { torch = !torch }
+                HudButton("GALLERY", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, fontSize = 12.sp) { gallery.launch("image/*") }
+            }
         }
+    }
 
-        result?.let { r ->
-            ResultCard(r, Modifier.align(Alignment.BottomCenter)) { result = null }
+    if (tablet) {
+        Row(Modifier.fillMaxSize()) {
+            viewport(Modifier.weight(1.3f).fillMaxHeight())
+            Spacer(Modifier.width(10.dp))
+            side(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()))
+        }
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            viewport(Modifier.weight(1f).fillMaxWidth())
+            Spacer(Modifier.height(6.dp))
+            side(Modifier.fillMaxWidth())
         }
     }
 }
 
+/** Targeting reticle: corner brackets, rotating arcs and a moving scan line. */
 @Composable
-private fun PillButton(label: String, highlight: Boolean = false, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (highlight) Accent else Color(0xCC0E1822),
-            contentColor = if (highlight) Color(0xFF00212B) else TextHi
-        ),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-    ) { Text(label, fontSize = 13.sp) }
-}
-
-@Composable
-private fun ScanFrame(modifier: Modifier = Modifier) {
-    val t = rememberInfiniteTransition(label = "scan")
-    val p by t.animateFloat(
+private fun Reticle(modifier: Modifier, locked: Boolean) {
+    val c = Hud.colors
+    val t = rememberInfiniteTransition(label = "reticle")
+    val line by t.animateFloat(
         0f, 1f,
         infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Reverse),
         label = "line"
     )
+    val ang by t.animateFloat(
+        0f, 360f,
+        infiniteRepeatable(tween(14000, easing = LinearEasing)),
+        label = "ang"
+    )
     Canvas(modifier) {
-        val side = size.minDimension * 0.68f
-        val left = (size.width - side) / 2f
-        val top = (size.height - side) / 2f - size.height * 0.04f
+        val col = if (locked) c.good else c.primary
+        val side = size.minDimension * 0.62f
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val left = center.x - side / 2f
+        val top = center.y - side / 2f
         val right = left + side
         val bottom = top + side
-        val len = side * 0.16f
-        val sw = 7f
-        val c = Accent
-        // four corners
-        drawLine(c, Offset(left, top), Offset(left + len, top), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(left, top), Offset(left, top + len), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(right, top), Offset(right - len, top), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(right, top), Offset(right, top + len), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(left, bottom), Offset(left + len, bottom), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(left, bottom), Offset(left, bottom - len), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(right, bottom), Offset(right - len, bottom), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(c, Offset(right, bottom), Offset(right, bottom - len), strokeWidth = sw, cap = StrokeCap.Round)
-        // moving scan line
-        val y = top + side * p
-        drawLine(Amber.copy(alpha = 0.9f), Offset(left + 14f, y), Offset(right - 14f, y), strokeWidth = 4f, cap = StrokeCap.Round)
-    }
-}
+        val len = side * 0.18f
+        val sw = 3.dp.toPx()
+        drawLine(col, Offset(left, top), Offset(left + len, top), sw, StrokeCap.Round)
+        drawLine(col, Offset(left, top), Offset(left, top + len), sw, StrokeCap.Round)
+        drawLine(col, Offset(right, top), Offset(right - len, top), sw, StrokeCap.Round)
+        drawLine(col, Offset(right, top), Offset(right, top + len), sw, StrokeCap.Round)
+        drawLine(col, Offset(left, bottom), Offset(left + len, bottom), sw, StrokeCap.Round)
+        drawLine(col, Offset(left, bottom), Offset(left, bottom - len), sw, StrokeCap.Round)
+        drawLine(col, Offset(right, bottom), Offset(right - len, bottom), sw, StrokeCap.Round)
+        drawLine(col, Offset(right, bottom), Offset(right, bottom - len), sw, StrokeCap.Round)
 
-@Composable
-private fun ResultCard(r: ScanResult, modifier: Modifier, onDone: () -> Unit) {
-    val ctx = LocalContext.current
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-            .background(Panel)
-            .padding(16.dp)
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip(r.kind, Accent)
-            Chip(r.format, Amber)
+        val r = size.minDimension * 0.46f
+        drawCircle(col.copy(alpha = 0.18f), r, center, style = Stroke(1.dp.toPx()))
+        rotate(degrees = ang, pivot = center) {
+            drawArc(
+                color = col.copy(alpha = 0.5f),
+                startAngle = 0f,
+                sweepAngle = 70f,
+                useCenter = false,
+                topLeft = Offset(center.x - r, center.y - r),
+                size = Size(2 * r, 2 * r),
+                style = Stroke(2.dp.toPx())
+            )
+            drawArc(
+                color = c.accent.copy(alpha = 0.45f),
+                startAngle = 180f,
+                sweepAngle = 40f,
+                useCenter = false,
+                topLeft = Offset(center.x - r, center.y - r),
+                size = Size(2 * r, 2 * r),
+                style = Stroke(2.dp.toPx())
+            )
         }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            r.detail ?: r.value,
-            color = TextHi,
-            fontSize = 17.sp,
-            maxLines = 8,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SmallAction("Copy", Modifier.weight(1f)) { Util.copy(ctx, r.value) }
-            if (r.secret != null && r.secret.isNotEmpty()) {
-                SmallAction("Password", Modifier.weight(1f)) { Util.copy(ctx, r.secret, "Password copied") }
-            }
-            SmallAction("Share", Modifier.weight(1f)) { Util.shareText(ctx, r.value) }
-            if (r.openUri != null) {
-                SmallAction("Open", Modifier.weight(1f)) { Util.open(ctx, r.openUri) }
-            } else {
-                SmallAction("Search", Modifier.weight(1f)) { Util.webSearch(ctx, r.value) }
-            }
+        if (!locked) {
+            val y = top + side * line
+            drawLine(c.accent.copy(alpha = 0.85f), Offset(left + 8.dp.toPx(), y), Offset(right - 8.dp.toPx(), y), 2.dp.toPx(), StrokeCap.Round)
         }
-        Spacer(Modifier.height(10.dp))
-        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Scan again") }
-    }
-}
-
-@Composable
-private fun Chip(text: String, color: Color) {
-    Text(
-        text,
-        color = color,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(PanelHi)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
-    )
-}
-
-@Composable
-private fun SmallAction(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, modifier = modifier, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)) {
-        Text(label, fontSize = 12.sp, maxLines = 1)
     }
 }
 
@@ -296,7 +254,11 @@ private fun CameraPreview(
     val ctx = LocalContext.current
     val owner = remember { ctx.findActivity() as LifecycleOwner }
     val previewView = remember {
-        PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+        PreviewView(ctx).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            // TextureView, so the HUD-shaped clip around the camera works
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
     }
     var camera by remember { mutableStateOf<Camera?>(null) }
     val isPaused by rememberUpdatedState(paused)
@@ -319,7 +281,7 @@ private fun CameraPreview(
                 preview.setSurfaceProvider(previewView.surfaceProvider)
                 @Suppress("DEPRECATION")
                 val analysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(1280, 720))
+                    .setTargetResolution(android.util.Size(1280, 720))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                 analysis.setAnalyzer(executor) { proxy ->
@@ -330,7 +292,7 @@ private fun CameraPreview(
                 camera = cam
                 torchCb(cam.cameraInfo.hasFlashUnit())
             } catch (e: Exception) {
-                Util.toast(ctx, "Camera not available")
+                Util.toast(ctx, "CAMERA NOT AVAILABLE")
             }
         }, ContextCompat.getMainExecutor(ctx))
 

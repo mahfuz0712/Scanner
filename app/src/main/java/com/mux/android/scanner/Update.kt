@@ -3,12 +3,13 @@ package com.mux.android.scanner
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -81,19 +82,21 @@ suspend fun checkUpdate(ctx: Context): Pair<Boolean, UpdateInfo?> = withContext(
 
 @Composable
 fun UpdateDialog(u: UpdateInfo, current: String, onUpdate: () -> Unit, onCancel: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("Update available") },
-        text = {
-            Column {
-                Text("v$current  →  v${u.version}")
-                if (u.notes.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(u.notes, color = TextDim, fontSize = 13.sp, maxLines = 8)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onUpdate) { Text("Update") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Later") } }
-    )
+    val c = Hud.colors
+    HudDialog("SYSTEM UPDATE DETECTED", onCancel) {
+        HudText("UPDATE AVAILABLE", color = c.primary, size = 18.sp, bold = true)
+        Spacer(Modifier.height(10.dp))
+        HudText("v$current  >>  v${u.version}", color = c.text, size = 14.sp)
+        if (u.notes.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            HudText(u.notes, color = c.dim, size = 11.sp, maxLines = 6)
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 18.dp).height(46.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            HudButton("CANCEL", Modifier.weight(1f).fillMaxHeight(), KeyKind.FN, fontSize = 13.sp) { onCancel() }
+            HudButton("UPDATE", Modifier.weight(1f).fillMaxHeight(), KeyKind.ACCENT, fontSize = 13.sp) { onUpdate() }
+        }
+    }
 }

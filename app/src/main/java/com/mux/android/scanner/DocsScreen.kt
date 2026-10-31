@@ -10,30 +10,19 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,8 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -58,10 +45,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** Scan paper documents into PDF files + list of saved PDFs. */
+/** DOCS tab: scan paper to PDF + list of saved PDFs. */
 @Composable
-fun DocsScreen() {
+fun DocsScreen(tablet: Boolean) {
     val ctx = LocalContext.current
+    val c = Hud.colors
     var files by remember { mutableStateOf(DocStore.list(ctx)) }
     var renaming by remember { mutableStateOf<File?>(null) }
     var deleting by remember { mutableStateOf<File?>(null) }
@@ -74,18 +62,18 @@ fun DocsScreen() {
                 val f = DocStore.importPdf(ctx, pdf.uri)
                 if (f != null) {
                     files = DocStore.list(ctx)
-                    Util.toast(ctx, "Saved ${f.name}")
+                    Util.toast(ctx, "SAVED " + f.name)
                 } else {
-                    Util.toast(ctx, "Could not save the PDF")
+                    Util.toast(ctx, "COULD NOT SAVE THE PDF")
                 }
             }
         }
     }
 
-    val startScan = {
+    val startScan: () -> Unit = {
         val activity = ctx.findActivity()
         if (activity == null) {
-            Util.toast(ctx, "Cannot start the scanner")
+            Util.toast(ctx, "CANNOT START THE SCANNER")
         } else {
             val options = GmsDocumentScannerOptions.Builder()
                 .setGalleryImportAllowed(true)
@@ -97,146 +85,137 @@ fun DocsScreen() {
                 .getStartScanIntent(activity)
                 .addOnSuccessListener { sender -> launcher.launch(IntentSenderRequest.Builder(sender).build()) }
                 .addOnFailureListener { e ->
-                    Util.toast(ctx, "Scanner not available: ${e.message ?: "needs Google Play services and internet the first time"}")
+                    Util.toast(ctx, "SCANNER NOT AVAILABLE: " + (e.message ?: "NEEDS GOOGLE PLAY SERVICES + INTERNET THE FIRST TIME"))
                 }
         }
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize().background(Bg).statusBarsPadding(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Column {
-                Text("Documents", color = TextHi, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Scan paper with the camera. Edges are found automatically, you can crop, clean up and add pages. Saved as PDF.",
-                    color = TextDim, fontSize = 13.sp
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = { startScan() }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Text("Scan document to PDF", fontSize = 16.sp)
+    val header: @Composable (Modifier) -> Unit = { m ->
+        HudPanel(m, "DOCUMENT SCANNER") {
+            HudText(
+                "Scan paper with the camera. Edges are found automatically; crop, clean up and add pages. Saved as PDF.",
+                color = c.text, size = 12.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            HudButton("SCAN DOCUMENT > PDF", Modifier.fillMaxWidth().height(48.dp), KeyKind.ACCENT, fontSize = 14.sp) { startScan() }
+        }
+    }
+
+    val list: @Composable (Modifier) -> Unit = { m ->
+        if (files.isEmpty()) {
+            Column(m) { EmptyNote("NO SCANNED PDF YET") }
+        } else {
+            LazyColumn(m) {
+                items(files, key = { it.absolutePath }) { f ->
+                    DocCard(f, onRename = { renaming = f }, onDelete = { deleting = f })
                 }
             }
         }
-        if (files.isEmpty()) {
-            item {
-                Text("No scanned PDFs yet.", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 20.dp))
-            }
+    }
+
+    if (tablet) {
+        Row(Modifier.fillMaxSize()) {
+            header(Modifier.weight(1f))
+            Spacer(Modifier.width(10.dp))
+            list(Modifier.weight(1.3f).fillMaxHeight())
         }
-        items(files, key = { it.absolutePath }) { f ->
-            DocCard(
-                file = f,
-                onRename = { renaming = f },
-                onDelete = { deleting = f }
-            )
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            header(Modifier.fillMaxWidth())
+            Spacer(Modifier.height(6.dp))
+            list(Modifier.weight(1f).fillMaxWidth())
         }
     }
 
     renaming?.let { f ->
         var name by remember(f) { mutableStateOf(f.nameWithoutExtension) }
-        AlertDialog(
-            onDismissRequest = { renaming = null },
-            title = { Text("Rename") },
-            text = {
-                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true)
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        HudDialog("RENAME FILE", { renaming = null }) {
+            HudField(name, "FILE NAME", Modifier.fillMaxWidth().height(46.dp)) { name = it }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().height(44.dp)) {
+                HudButton("CANCEL", Modifier.weight(1f).fillMaxHeight(), KeyKind.FN, fontSize = 12.sp) { renaming = null }
+                HudButton("SAVE", Modifier.weight(1f).fillMaxHeight(), KeyKind.ACCENT, fontSize = 12.sp) {
                     val clean = name.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
                     if (clean.isNotEmpty()) {
                         val target = File(f.parentFile, "$clean.pdf")
                         if (target.exists() && target != f) {
-                            Util.toast(ctx, "A file with that name already exists")
+                            Util.toast(ctx, "A FILE WITH THAT NAME ALREADY EXISTS")
                         } else {
                             if (target != f) f.renameTo(target)
                             files = DocStore.list(ctx)
                             renaming = null
                         }
                     }
-                }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } }
-        )
+                }
+            }
+        }
     }
 
     deleting?.let { f ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("Delete PDF?") },
-            text = { Text(f.name) },
-            confirmButton = {
-                TextButton(onClick = {
+        HudDialog("DELETE PDF?", { deleting = null }) {
+            HudText(f.name, color = c.text, size = 13.sp)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().height(44.dp)) {
+                HudButton("CANCEL", Modifier.weight(1f).fillMaxHeight(), KeyKind.FN, fontSize = 12.sp) { deleting = null }
+                HudButton("DELETE", Modifier.weight(1f).fillMaxHeight(), KeyKind.DANGER, fontSize = 12.sp) {
                     f.delete()
                     files = DocStore.list(ctx)
                     deleting = null
-                }) { Text("Delete", color = Danger) }
-            },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } }
-        )
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun DocCard(file: File, onRename: () -> Unit, onDelete: () -> Unit) {
     val ctx = LocalContext.current
+    val c = Hud.colors
     val info by produceState<PdfInfo?>(null, file.absolutePath, file.lastModified()) {
         value = withContext(Dispatchers.IO) { DocStore.info(file) }
     }
-    var menu by remember { mutableStateOf(false) }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Panel)
-            .padding(12.dp)
-    ) {
+    HudItem(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(width = 56.dp, height = 74.dp).clip(RoundedCornerShape(6.dp)).background(Color.White),
+                Modifier
+                    .size(width = 50.dp, height = 66.dp)
+                    .clip(HudShape(4.dp))
+                    .background(Color.White)
+                    .border(1.dp, c.primary.copy(alpha = 0.6f), HudShape(4.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val bmp = info?.thumb
                 if (bmp != null) {
                     Image(bmp.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 } else {
-                    Text("PDF", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    HudText("PDF", color = Color.Gray, size = 11.sp, bold = true)
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(file.nameWithoutExtension, color = TextHi, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                HudText(file.nameWithoutExtension, color = c.text, size = 14.sp, bold = true, maxLines = 2)
                 val pages = info?.pages ?: 0
-                val pageText = if (pages > 0) "$pages page${if (pages == 1) "" else "s"} · " else ""
-                Text(
-                    pageText + Formatter.formatShortFileSize(ctx, file.length()) + " · " +
-                        DateUtils.getRelativeTimeSpanString(file.lastModified(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS),
-                    color = TextDim, fontSize = 12.sp
+                val pageText = if (pages > 0) pages.toString() + (if (pages == 1) " PAGE · " else " PAGES · ") else ""
+                HudText(
+                    pageText + Formatter.formatShortFileSize(ctx, file.length()).uppercase() + " · " +
+                        DateUtils.getRelativeTimeSpanString(file.lastModified(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString().uppercase(),
+                    color = c.dim, size = 10.sp
                 )
             }
-            Box {
-                TextButton(onClick = { menu = true }) { Text("⋮", color = TextHi, fontSize = 20.sp) }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
-                    DropdownMenuItem(text = { Text("Delete", color = Danger) }, onClick = { menu = false; onDelete() })
-                }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().height(38.dp)) {
+            HudButton("OPEN", Modifier.weight(1f).fillMaxHeight(), KeyKind.GOOD, fontSize = 11.sp) { openPdf(ctx, file) }
+            HudButton("SHARE", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, fontSize = 11.sp) { sharePdf(ctx, file) }
+            HudButton("SAVE", Modifier.weight(1f).fillMaxHeight(), KeyKind.OP, fontSize = 11.sp) {
+                if (DocStore.saveToDownloads(ctx, file)) Util.toast(ctx, "SAVED TO DOWNLOADS/SCANNER")
+                else Util.toast(ctx, "COULD NOT SAVE TO DOWNLOADS")
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { openPdf(ctx, file) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(4.dp)) { Text("Open", fontSize = 13.sp) }
-            OutlinedButton(onClick = { sharePdf(ctx, file) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(4.dp)) { Text("Share", fontSize = 13.sp) }
-            OutlinedButton(
-                onClick = {
-                    if (DocStore.saveToDownloads(ctx, file)) Util.toast(ctx, "Saved to Downloads/Scanner")
-                    else Util.toast(ctx, "Could not save to Downloads")
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(4.dp)
-            ) { Text("Save", fontSize = 13.sp) }
+        Row(Modifier.fillMaxWidth().height(34.dp)) {
+            HudButton("RENAME", Modifier.weight(1f).fillMaxHeight(), KeyKind.FN, fontSize = 10.sp) { onRename() }
+            HudButton("DELETE", Modifier.weight(1f).fillMaxHeight(), KeyKind.DANGER, fontSize = 10.sp) { onDelete() }
         }
     }
 }
@@ -248,7 +227,7 @@ private fun openPdf(ctx: Context, f: File) {
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         ctx.startActivity(i)
     } catch (e: Exception) {
-        Util.toast(ctx, "No PDF viewer installed")
+        Util.toast(ctx, "NO PDF VIEWER INSTALLED")
     }
 }
 
@@ -261,6 +240,6 @@ private fun sharePdf(ctx: Context, f: File) {
         }
         ctx.startActivity(Intent.createChooser(i, "Share PDF").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (e: Exception) {
-        Util.toast(ctx, "Cannot share")
+        Util.toast(ctx, "CANNOT SHARE")
     }
 }
