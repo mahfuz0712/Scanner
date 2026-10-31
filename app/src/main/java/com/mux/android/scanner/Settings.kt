@@ -20,7 +20,7 @@ object AppSettings {
         amber = p.getBoolean("amber", false)
     }
 
-    fun setAmber(v: Boolean) {
+    fun applyAmber(v: Boolean) {
         amber = v
         prefs?.edit()?.putBoolean("amber", v)?.apply()
     }
