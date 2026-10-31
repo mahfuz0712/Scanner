@@ -73,7 +73,7 @@ private fun AppPanel(modifier: Modifier) {
         Spacer(Modifier.height(8.dp))
         HudText("THEME", color = c.dim, size = 10.sp)
         SettingRow("COLOR THEME", null, if (AppSettings.amber) "AMBER" else "CYAN", KeyKind.ACCENT) {
-            AppSettings.setAmber(!AppSettings.amber)
+            AppSettings.applyAmber(!AppSettings.amber)
         }
     }
 }
