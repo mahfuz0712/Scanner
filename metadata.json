@@ -1,0 +1,10 @@
+{
+  "name": "Scanner",
+  "description": "Scan documents to PDF, and scan QR codes and barcodes. Keeps a history of scanned codes and your PDF files.",
+  "version": "1.0.0",
+  "ageRating": "3+",
+  "type": "app",
+  "containsAds": false,
+  "category": "productivity",
+  "author": "Mohammad Mahfuz Rahman"
+}
